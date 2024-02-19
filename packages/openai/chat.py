@@ -4,6 +4,8 @@
 
 from openai import AzureOpenAI
 import re
+import requests
+import socket
 
 ROLE = """
 When requested to write code, pick Python.
@@ -77,8 +79,79 @@ def main(args):
             "message": "You can chat with OpenAI."
         }
     else:
+        print("----------------- new code - STEP 1 - email address in input check ----------------")
+        lst = re.findall('\S+@\S+', input)  
+
+        if len(lst) > 0:
+            if len(lst) > 1:
+                print("more than 1 email address in the request, picking the first one")
+            r = requests.get('https://nuvolaris.dev/api/v1/web/utils/demo/slack/?text=ciao, '+lst[0]+' come va?', auth=('user', 'pass'))
+            print(lst[0])
+            if (r.status_code != 200):
+                print("request failed: status code:" + str(r.status_code) )
+        else:
+            print("no email addresses were found in user input")
+
+        print("----------------- new code - STEP 2 - domain check and ip resolving ----------------")
+        userdomain = re.search("(?P<url>https?://[^\s]+)", input) or re.search("(?P<url>www[^\s]+)", input)
+        if(userdomain):
+            hostname = userdomain.group('url')
+            print("user requested info about domain:" + hostname)
+            try:
+                data = socket.gethostbyname_ex(hostname)
+                ip_addresses = data[2]
+                print(f"The IP Addresses of {hostname} are: {', '.join(ip_addresses)}")
+            except socket.gaierror:
+                print(f"Unable to resolve IP addresses for {hostname}.")
+        else:
+            print("no user domains were found in user input")
+
+        print("----------------- new code - STEP 3 - CHESS speeches check  ----------------")
+        chessflag = False
+        pattern = r'\\bchess\\b'
+        result = re.search(pattern, input)
+        if(result!="none"):
+            chessflag = True
+        pattern = r'\\bChess\\b'
+        result = re.search(pattern, input)
+        if(result!="none"):
+            chessflag = True
+        pattern = r'\\bschacchi\\b'
+        result = re.search(pattern, input)
+        if(result!="none"):
+            chessflag = True
+        pattern = r'\\bSchacchi\\b'
+        result = re.search(pattern, input)
+        if(result!="none"):
+            chessflag = True
+
+        GPTchessTask = False
+        if(chessflag):
+            print('is a chess discussion')
+            tmpoutput = ask("is the following a request for a chess puzzle:"+input+" Answer Yes or No.")
+            risp = tmpoutput[:2]
+            print("risposta GPT:" + risp)
+            if( risp == "Ye"):
+                #do chess tasks
+                GPTchessTask = True
+                randompuzzle = requests.get('https://pychess.run.goorm.io/api/puzzle?limit=1')
+                rjson = randompuzzle.json()
+                FEN = rjson.get('items')[0].get('fen')
+                puzzleid = str( rjson.get('items')[0].get('puzzleid') )
+                print("puzzleID:"+puzzleid+" | FEN:" + FEN)
+                #log slack the puzzleid
+                logp = requests.get('https://nuvolaris.dev/api/v1/web/utils/demo/slack/?text=puzzleID: '+puzzleid, auth=('user', 'pass'))
+
+          
         output = ask(input)
         res = extract(output)
         res['output'] = output
-
+        if(GPTchessTask):
+            res['chess'] = FEN
+        
     return {"body": res }
+
+def validate_email(email):
+    pattern = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+    match = pattern.search(email)
+    return match
